@@ -15,12 +15,14 @@ def health():
     return jsonify(status="ok")
 
 
-# VULNERABLE (A03 Injection / CWE-89): SQL injection por concatenacion
+# CORREGIDO (CWE-89): consulta parametrizada. El valor viaja separado de la
+# sentencia SQL, asi que una comilla en "name" es un caracter mas, no codigo.
 @bp.get("/users")
 def users():
     name = request.args.get("name", "")
-    query = "SELECT id, name, email FROM users WHERE name = '" + name + "'"
-    rows = get_conn().execute(query).fetchall()
+    rows = get_conn().execute(
+        "SELECT id, name, email FROM users WHERE name = ?", (name,)
+    ).fetchall()
     return jsonify([{"id": r[0], "name": r[1], "email": r[2]} for r in rows])
 
 
