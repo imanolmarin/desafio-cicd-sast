@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify, request
 from markupsafe import escape
 
 from .auth import hash_password
+from .calc import ExpresionInvalida, evaluar
 from .db import get_conn
 
 bp = Blueprint("main", __name__)
@@ -90,10 +91,14 @@ def files():
         return f.read(), 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
-# VULNERABLE (A03 Injection / CWE-95): eval sobre input del usuario
+# CORREGIDO (CWE-95): no se evalua codigo. app/calc.py parsea la expresion y
+# solo acepta numeros y operadores aritmeticos (allowlist de nodos del AST).
 @bp.get("/calc")
 def calc():
-    return jsonify(result=eval(request.args.get("expr", "0")))
+    try:
+        return jsonify(result=evaluar(request.args.get("expr", "0")))
+    except ExpresionInvalida:
+        return jsonify(error="expresion invalida"), 400
 
 
 @bp.post("/register")

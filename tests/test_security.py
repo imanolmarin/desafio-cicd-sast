@@ -84,3 +84,33 @@ def test_files_inexistente_da_404(client):
 
 def test_files_legitimo(client):
     assert "Hola" in client.get("/files?name=hola.txt").get_data(as_text=True)
+
+
+# ── CWE-95: eval en /calc ───────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "__import__('os').popen('id').read()",
+        "open('/etc/passwd').read()",
+        "().__class__.__bases__[0].__subclasses__()",
+        "(lambda: 1)()",
+        "a + 1",
+        "'a' * 10",
+        "9**9**9**9",
+        "10**100",
+        "1/0",
+        "1" * 200,
+        "",
+    ],
+)
+def test_calc_rechaza_codigo_y_abusos(client, expr):
+    res = client.get("/calc", query_string={"expr": expr})
+    assert res.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "expr,esperado",
+    [("1+1", 2), ("2*(3+4)", 14), ("-5+2", -3), ("7/2", 3.5), ("7//2", 3), ("2**10", 1024), ("10%3", 1)],
+)
+def test_calc_aritmetica_valida(client, expr, esperado):
+    assert client.get("/calc", query_string={"expr": expr}).get_json()["result"] == esperado
