@@ -17,3 +17,10 @@ def init_db():
 
 def get_conn():
     return _conn
+
+
+def buscar_usuarios_por_nombre(name):
+    """Consulta parametrizada: el nombre viaja como parametro, nunca como SQL."""
+    return _conn.execute(
+        "SELECT id, name, email FROM users WHERE name = ?", (name,)
+    ).fetchall()

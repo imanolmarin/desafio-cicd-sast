@@ -1,14 +1,16 @@
 import ipaddress
 import os
 import re
-import subprocess  # nosec B404 - se usa con lista de argv y host validado
+import shutil
+# subprocess se usa solo con lista de argv y host validado (ver /ping).
+import subprocess  # nosec B404
 
 from flask import Blueprint, jsonify, request
 from markupsafe import escape
 
 from .auth import hash_password
 from .calc import ExpresionInvalida, evaluar
-from .db import get_conn
+from .db import buscar_usuarios_por_nombre
 
 bp = Blueprint("main", __name__)
 BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "files"))
@@ -20,14 +22,12 @@ def health():
     return jsonify(status="ok")
 
 
-# CORREGIDO (CWE-89): consulta parametrizada. El valor viaja separado de la
-# sentencia SQL, asi que una comilla en "name" es un caracter mas, no codigo.
+# CORREGIDO (CWE-89): consulta parametrizada (en db.py). El valor viaja
+# separado de la sentencia SQL: una comilla en "name" es un caracter mas.
 @bp.get("/users")
 def users():
     name = request.args.get("name", "")
-    rows = get_conn().execute(
-        "SELECT id, name, email FROM users WHERE name = ?", (name,)
-    ).fetchall()
+    rows = buscar_usuarios_por_nombre(name)
     return jsonify([{"id": r[0], "name": r[1], "email": r[2]} for r in rows])
 
 
@@ -43,6 +43,9 @@ def search():
         "Content-Security-Policy": "default-src 'none'",
     }
 
+
+# Ruta absoluta del binario (evita depender del PATH al ejecutar).
+PING = shutil.which("ping") or "/usr/bin/ping"
 
 # Hostname RFC 1123: etiquetas de letras, digitos y "-", separadas por ".",
 # sin empezar ni terminar con "-". Nada de espacios ni metacaracteres de shell.
@@ -67,8 +70,9 @@ def ping():
     host = request.args.get("host", "localhost")
     if not _host_valido(host):
         return jsonify(error="host invalido"), 400
-    out = subprocess.run(  # nosec B603 - argv fijo + host validado, sin shell
-        ["ping", "-c", "1", "-W", "2", host],
+    # argv fijo + host validado, sin shell
+    out = subprocess.run(  # nosec B603
+        [PING, "-c", "1", "-W", "2", host],
         capture_output=True, text=True, timeout=5, check=False,
     )
     return out.stdout, 200, {"Content-Type": "text/plain"}

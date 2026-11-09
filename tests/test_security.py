@@ -62,7 +62,8 @@ def test_ping_usa_argv_sin_shell(client, host, monkeypatch):
     monkeypatch.setattr("app.routes.subprocess.run", falso_run)
     res = client.get("/ping", query_string={"host": host})
     assert res.status_code == 200
-    assert capturado["args"] == ["ping", "-c", "1", "-W", "2", host]
+    assert capturado["args"][0].endswith("ping")
+    assert capturado["args"][1:] == ["-c", "1", "-W", "2", host]
     assert capturado["kwargs"].get("shell", False) is False
 
 
@@ -122,7 +123,7 @@ def test_register_no_usa_md5_y_lleva_sal(client):
 
     h1 = client.post("/register", json={"password": "123456"}).get_json()["hash"]
     h2 = client.post("/register", json={"password": "123456"}).get_json()["hash"]
-    assert h1 != hashlib.md5(b"123456").hexdigest()  # nosec B324 - se compara contra MD5 a proposito
+    assert h1 != hashlib.md5(b"123456").hexdigest()  # nosec B324
     assert h1.startswith("scrypt$")
     assert h1 != h2  # sal aleatoria: mismo password, hashes distintos
 
