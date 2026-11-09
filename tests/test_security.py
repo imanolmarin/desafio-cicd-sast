@@ -33,3 +33,34 @@ def test_search_escapa_html(client):
 
 def test_search_texto_normal(client):
     assert "Resultados para: hola" in client.get("/search?q=hola").get_data(as_text=True)
+
+
+# ── CWE-78: command injection en /ping ──────────────────────────────────────
+@pytest.mark.parametrize(
+    "host",
+    ["127.0.0.1;id", "localhost && whoami", "$(id)", "`id`", "a|b", "-f", "x y", "", "a" * 300],
+)
+def test_ping_rechaza_hosts_invalidos(client, host, monkeypatch):
+    llamadas = []
+    monkeypatch.setattr("app.routes.subprocess.run", lambda *a, **k: llamadas.append(a))
+    res = client.get("/ping", query_string={"host": host})
+    assert res.status_code == 400
+    assert llamadas == []  # nunca se llega a ejecutar nada
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "::1", "example.com", "mi-host.local"])
+def test_ping_usa_argv_sin_shell(client, host, monkeypatch):
+    capturado = {}
+
+    class Resultado:
+        stdout = "ok"
+
+    def falso_run(args, **kwargs):
+        capturado["args"], capturado["kwargs"] = args, kwargs
+        return Resultado()
+
+    monkeypatch.setattr("app.routes.subprocess.run", falso_run)
+    res = client.get("/ping", query_string={"host": host})
+    assert res.status_code == 200
+    assert capturado["args"] == ["ping", "-c", "1", "-W", "2", host]
+    assert capturado["kwargs"].get("shell", False) is False

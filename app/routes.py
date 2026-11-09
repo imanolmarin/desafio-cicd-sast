@@ -1,5 +1,7 @@
+import ipaddress
 import os
-import subprocess
+import re
+import subprocess  # nosec B404 - se usa con lista de argv y host validado
 
 from flask import Blueprint, jsonify, request
 from markupsafe import escape
@@ -40,11 +42,33 @@ def search():
     }
 
 
-# VULNERABLE (A03 Injection / CWE-78): command injection
+# Hostname RFC 1123: etiquetas de letras, digitos y "-", separadas por ".",
+# sin empezar ni terminar con "-". Nada de espacios ni metacaracteres de shell.
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
+)
+
+
+def _host_valido(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return bool(_HOSTNAME_RE.fullmatch(host))
+
+
+# CORREGIDO (CWE-78): sin shell. El host se valida con una allowlist (IP o
+# hostname RFC 1123) y se pasa como un elemento de argv: aunque tuviera ";" o
+# "$( )", ping lo recibiria como un unico argumento y nadie lo interpretaria.
 @bp.get("/ping")
 def ping():
     host = request.args.get("host", "localhost")
-    out = subprocess.run("ping -c 1 " + host, shell=True, capture_output=True, text=True)
+    if not _host_valido(host):
+        return jsonify(error="host invalido"), 400
+    out = subprocess.run(  # nosec B603 - argv fijo + host validado, sin shell
+        ["ping", "-c", "1", "-W", "2", host],
+        capture_output=True, text=True, timeout=5, check=False,
+    )
     return out.stdout, 200, {"Content-Type": "text/plain"}
 
 
