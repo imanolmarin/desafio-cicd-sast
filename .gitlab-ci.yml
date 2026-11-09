@@ -7,6 +7,11 @@ stages:
 
 include:
   - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
+variables:
+  # CONSIGNA.md trae la clave de ejemplo de AWS del enunciado (falso positivo).
+  SECRET_DETECTION_EXCLUDED_PATHS: "CONSIGNA.md"
 
 default:
   image: python:3.12-slim
