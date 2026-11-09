@@ -2,6 +2,7 @@ import os
 import subprocess
 
 from flask import Blueprint, jsonify, request
+from markupsafe import escape
 
 from .auth import hash_password
 from .db import get_conn
@@ -26,11 +27,17 @@ def users():
     return jsonify([{"id": r[0], "name": r[1], "email": r[2]} for r in rows])
 
 
-# VULNERABLE (A03 Injection / CWE-79): XSS reflejado
+# CORREGIDO (CWE-79): se codifica la salida para el contexto HTML. "<" y ">"
+# llegan al navegador como &lt; y &gt;: se muestran, no se interpretan.
 @bp.get("/search")
 def search():
     q = request.args.get("q", "")
-    return "<h1>Resultados para: " + q + "</h1>"
+    html = "<h1>Resultados para: " + str(escape(q)) + "</h1>"
+    return html, 200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'",
+    }
 
 
 # VULNERABLE (A03 Injection / CWE-78): command injection
