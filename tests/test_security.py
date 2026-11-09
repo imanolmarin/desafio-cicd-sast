@@ -114,3 +114,23 @@ def test_calc_rechaza_codigo_y_abusos(client, expr):
 )
 def test_calc_aritmetica_valida(client, expr, esperado):
     assert client.get("/calc", query_string={"expr": expr}).get_json()["result"] == esperado
+
+
+# ── CWE-327: hash debil en /register ────────────────────────────────────────
+def test_register_no_usa_md5_y_lleva_sal(client):
+    import hashlib
+
+    h1 = client.post("/register", json={"password": "123456"}).get_json()["hash"]
+    h2 = client.post("/register", json={"password": "123456"}).get_json()["hash"]
+    assert h1 != hashlib.md5(b"123456").hexdigest()  # nosec B324 - se compara contra MD5 a proposito
+    assert h1.startswith("scrypt$")
+    assert h1 != h2  # sal aleatoria: mismo password, hashes distintos
+
+
+def test_verify_password():
+    from app.auth import hash_password, verify_password
+
+    h = hash_password("correcta")
+    assert verify_password("correcta", h)
+    assert not verify_password("incorrecta", h)
+    assert not verify_password("correcta", "e10adc3949ba59abbe56e057f20f883e")
