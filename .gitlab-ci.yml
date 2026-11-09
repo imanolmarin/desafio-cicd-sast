@@ -1,0 +1,31 @@
+# Pipeline base del desafio SAST (Python).
+# Estado inicial: solo instalacion y tests. Tu desafio es agregar SAST (ver ../README.md).
+
+stages:
+  - build
+  - test
+
+default:
+  image: python:3.12-slim
+
+install:
+  stage: build
+  script:
+    - python -m venv .venv
+    - .venv/bin/pip install -r requirements.txt
+  cache:
+    key:
+      files:
+        - requirements.txt
+    paths:
+      - .venv/
+  artifacts:
+    paths:
+      - .venv/
+    expire_in: 1 hour
+
+unit-tests:
+  stage: test
+  needs: [install]
+  script:
+    - .venv/bin/pytest -q

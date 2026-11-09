@@ -1,0 +1,61 @@
+import os
+import subprocess
+
+from flask import Blueprint, jsonify, request
+
+from .auth import hash_password
+from .db import get_conn
+
+bp = Blueprint("main", __name__)
+BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "files")
+
+
+@bp.get("/health")
+def health():
+    return jsonify(status="ok")
+
+
+# VULNERABLE (A03 Injection / CWE-89): SQL injection por concatenacion
+@bp.get("/users")
+def users():
+    name = request.args.get("name", "")
+    query = "SELECT id, name, email FROM users WHERE name = '" + name + "'"
+    rows = get_conn().execute(query).fetchall()
+    return jsonify([{"id": r[0], "name": r[1], "email": r[2]} for r in rows])
+
+
+# VULNERABLE (A03 Injection / CWE-79): XSS reflejado
+@bp.get("/search")
+def search():
+    q = request.args.get("q", "")
+    return "<h1>Resultados para: " + q + "</h1>"
+
+
+# VULNERABLE (A03 Injection / CWE-78): command injection
+@bp.get("/ping")
+def ping():
+    host = request.args.get("host", "localhost")
+    out = subprocess.run("ping -c 1 " + host, shell=True, capture_output=True, text=True)
+    return out.stdout, 200, {"Content-Type": "text/plain"}
+
+
+# VULNERABLE (A01 Broken Access Control / CWE-22): path traversal
+@bp.get("/files")
+def files():
+    name = request.args.get("name", "hola.txt")
+    with open(os.path.join(BASE_DIR, name)) as f:
+        return f.read(), 200, {"Content-Type": "text/plain"}
+
+
+# VULNERABLE (A03 Injection / CWE-95): eval sobre input del usuario
+@bp.get("/calc")
+def calc():
+    return jsonify(result=eval(request.args.get("expr", "0")))
+
+
+@bp.post("/register")
+def register():
+    password = (request.get_json(silent=True) or {}).get("password")
+    if not password:
+        return jsonify(error="password requerido"), 400
+    return jsonify(hash=hash_password(password))
