@@ -32,3 +32,34 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: pytest -q
+
+  # ── Nivel 1: SAST ──────────────────────────────────────────────────────────
+  # Equivale a `include: template: Security/SAST.gitlab-ci.yml`: corre la MISMA
+  # imagen del analizador Semgrep de GitLab y publica gl-sast-report.json.
+  sast:
+    needs: install
+    runs-on: ubuntu-latest
+    env:
+      # Mismo valor por defecto que el template de GitLab.
+      SAST_EXCLUDED_PATHS: "spec, test, tests, tmp"
+    steps:
+      - uses: actions/checkout@v4
+      - name: semgrep (analizador de GitLab SAST)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            -e CI_PROJECT_DIR=/src -e SAST_EXCLUDED_PATHS \
+            registry.gitlab.com/security-products/semgrep:5 /analyzer run
+      - name: resumen de hallazgos
+        run: |
+          {
+            echo "### SAST: $(jq '.vulnerabilities | length' gl-sast-report.json) hallazgos"
+            echo
+            echo "| Severidad | Archivo:línea | CWE | Hallazgo |"
+            echo "|---|---|---|---|"
+            jq -r '.vulnerabilities[] | "| \(.severity) | \(.location.file):\(.location.start_line) | \([.identifiers[] | select(.type=="cwe") | .name] | join(", ")) | \(.name) |"' gl-sast-report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gl-sast-report
+          path: gl-sast-report.json

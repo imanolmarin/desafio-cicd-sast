@@ -1,9 +1,12 @@
 # Pipeline base del desafio SAST (Python).
-# Estado inicial: solo instalacion y tests. Tu desafio es agregar SAST (ver ../README.md).
+# En GitHub corre el equivalente en .github/workflows/ci.yml.
 
 stages:
   - build
   - test
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
 
 default:
   image: python:3.12-slim
