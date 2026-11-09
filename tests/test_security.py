@@ -64,3 +64,23 @@ def test_ping_usa_argv_sin_shell(client, host, monkeypatch):
     assert res.status_code == 200
     assert capturado["args"] == ["ping", "-c", "1", "-W", "2", host]
     assert capturado["kwargs"].get("shell", False) is False
+
+
+# ── CWE-22: path traversal en /files ────────────────────────────────────────
+@pytest.mark.parametrize(
+    "name",
+    ["../app/db.py", "../../../../etc/passwd", "/etc/passwd", "..%2Fapp%2Fdb.py", "sub/../../app/db.py", "", "hola.txt\x00.png"],
+)
+def test_files_no_sale_del_directorio_base(client, name):
+    res = client.get("/files", query_string={"name": name})
+    assert res.status_code in (400, 404)
+    assert "sqlite3" not in res.get_data(as_text=True)
+    assert "root:" not in res.get_data(as_text=True)
+
+
+def test_files_inexistente_da_404(client):
+    assert client.get("/files?name=noexiste.txt").status_code == 404
+
+
+def test_files_legitimo(client):
+    assert "Hola" in client.get("/files?name=hola.txt").get_data(as_text=True)

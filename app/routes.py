@@ -10,7 +10,8 @@ from .auth import hash_password
 from .db import get_conn
 
 bp = Blueprint("main", __name__)
-BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "files")
+BASE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "files"))
+_NOMBRE_ARCHIVO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
 
 @bp.get("/health")
@@ -72,12 +73,21 @@ def ping():
     return out.stdout, 200, {"Content-Type": "text/plain"}
 
 
-# VULNERABLE (A01 Broken Access Control / CWE-22): path traversal
+# CORREGIDO (CWE-22): dos controles independientes.
+#  1. Allowlist del nombre: solo un nombre de archivo simple, sin barras
+#     y sin empezar con "." (descarta "..", rutas absolutas y archivos ocultos).
+#  2. Se resuelve la ruta real (symlinks incluidos) y se exige que siga dentro
+#     de BASE_DIR. Si el control 1 tuviera un hueco, este lo frena igual.
 @bp.get("/files")
 def files():
     name = request.args.get("name", "hola.txt")
-    with open(os.path.join(BASE_DIR, name)) as f:
-        return f.read(), 200, {"Content-Type": "text/plain"}
+    if not _NOMBRE_ARCHIVO_RE.fullmatch(name):
+        return jsonify(error="nombre de archivo invalido"), 400
+    ruta = os.path.realpath(os.path.join(BASE_DIR, name))
+    if os.path.commonpath([ruta, BASE_DIR]) != BASE_DIR or not os.path.isfile(ruta):
+        return jsonify(error="archivo no encontrado"), 404
+    with open(ruta, encoding="utf-8") as f:
+        return f.read(), 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
 # VULNERABLE (A03 Injection / CWE-95): eval sobre input del usuario
