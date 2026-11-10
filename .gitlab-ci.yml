@@ -1,9 +1,19 @@
 # Pipeline base del desafio SAST (Python).
-# Estado inicial: solo instalacion y tests. Tu desafio es agregar SAST (ver ../README.md).
+# En GitHub corre el equivalente en .github/workflows/ci.yml.
 
 stages:
   - build
   - test
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
+variables:
+  # Valor por defecto del template, explicito: los tests no se analizan.
+  SAST_EXCLUDED_PATHS: "spec, test, tests, tmp"
+  # CONSIGNA.md trae la clave de ejemplo de AWS del enunciado (falso positivo).
+  SECRET_DETECTION_EXCLUDED_PATHS: "CONSIGNA.md"
 
 default:
   image: python:3.12-slim
@@ -29,3 +39,25 @@ unit-tests:
   needs: [install]
   script:
     - .venv/bin/pytest -q
+
+# Gate: falla el pipeline si el SAST reporta algo Medium o mayor.
+sast-gate:
+  stage: test
+  image: alpine:3.20
+  needs:
+    - job: semgrep-sast
+      artifacts: true
+  script:
+    - apk add --no-cache jq
+    - n=$(jq '[.vulnerabilities[] | select(.severity | IN("Critical","High","Medium"))] | length' gl-sast-report.json)
+    - echo "hallazgos Medium+ = $n"
+    - test "$n" -eq 0
+
+# Regla propia de Semgrep para el XSS reflejado que el ruleset de GitLab no ve.
+semgrep-custom:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install --quiet semgrep==1.144.0
+    - semgrep --metrics=off --test --config .semgrep/flask-xss-reflejado.yml .semgrep/flask-xss-reflejado.py
+    - semgrep scan --metrics=off --error --config .semgrep/flask-xss-reflejado.yml app/

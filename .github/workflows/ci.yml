@@ -32,3 +32,91 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: pytest -q
+
+  # ── Nivel 1: SAST ──────────────────────────────────────────────────────────
+  # Equivale a `include: template: Security/SAST.gitlab-ci.yml`: corre la MISMA
+  # imagen del analizador Semgrep de GitLab y publica gl-sast-report.json.
+  sast:
+    needs: install
+    runs-on: ubuntu-latest
+    env:
+      # Mismo valor por defecto que el template de GitLab.
+      SAST_EXCLUDED_PATHS: "spec, test, tests, tmp"
+    steps:
+      - uses: actions/checkout@v4
+      - name: semgrep (analizador de GitLab SAST)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            -e CI_PROJECT_DIR=/src -e SAST_EXCLUDED_PATHS \
+            registry.gitlab.com/security-products/semgrep:5 /analyzer run
+      - name: resumen de hallazgos
+        run: |
+          {
+            echo "### SAST: $(jq '.vulnerabilities | length' gl-sast-report.json) hallazgos"
+            echo
+            echo "| Severidad | Archivo:línea | CWE | Hallazgo |"
+            echo "|---|---|---|---|"
+            jq -r '.vulnerabilities[] | "| \(.severity) | \(.location.file):\(.location.start_line) | \([.identifiers[] | select(.type=="cwe") | .name] | join(", ")) | \(.name) |"' gl-sast-report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gl-sast-report
+          path: gl-sast-report.json
+      # Gate: el pipeline falla si el SAST encuentra algo de severidad
+      # Medium o mayor (en GitLab: job sast-gate, ver .gitlab-ci.yml).
+      - name: gate (falla ante hallazgos Medium o mayores)
+        run: |
+          n=$(jq '[.vulnerabilities[] | select(.severity | IN("Critical","High","Medium"))] | length' gl-sast-report.json)
+          if [ "$n" -gt 0 ]; then
+            echo "::error::SAST encontro $n hallazgo(s) Medium o mayores"
+            exit 1
+          fi
+
+  # Regla propia de Semgrep (.semgrep/): cubre el XSS reflejado que el
+  # ruleset de GitLab no detecta. Primero se testea la regla, despues se usa.
+  semgrep-custom:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet semgrep==1.144.0 pydantic==2.11.10
+      - run: semgrep --metrics=off --test --config .semgrep/flask-xss-reflejado.yml .semgrep/flask-xss-reflejado.py
+      - run: semgrep scan --metrics=off --error --config .semgrep/flask-xss-reflejado.yml app/
+
+  # ── Secret detection ───────────────────────────────────────────────────────
+  # Equivale a `include: template: Security/Secret-Detection.gitlab-ci.yml`:
+  # misma imagen (Gitleaks + reglas de GitLab), publica
+  # gl-secret-detection-report.json. CONSIGNA.md se excluye porque trae la
+  # clave de ejemplo de AWS del enunciado (falso positivo, ver mi-analisis.md).
+  secret_detection:
+    runs-on: ubuntu-latest
+    env:
+      SECRET_DETECTION_EXCLUDED_PATHS: "CONSIGNA.md"
+    steps:
+      - uses: actions/checkout@v4
+      - name: secrets (analizador de GitLab Secret Detection)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            -e CI_PROJECT_DIR=/src -e SECRET_DETECTION_EXCLUDED_PATHS \
+            registry.gitlab.com/security-products/secrets:6 /analyzer run
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gl-secret-detection-report
+          path: gl-secret-detection-report.json
+      - name: falla si hay secretos
+        run: |
+          n=$(jq '.vulnerabilities | length' gl-secret-detection-report.json)
+          {
+            echo "### Secret detection: $n hallazgos"
+            echo
+            jq -r '.vulnerabilities[] | "- **\(.name)** en `\(.location.file):\(.location.start_line)`"' gl-secret-detection-report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$n" -gt 0 ]; then
+            echo "::error::Secret detection encontro $n secreto(s). Revocar/rotar la credencial: borrarla del codigo no alcanza."
+            exit 1
+          fi

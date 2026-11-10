@@ -1,0 +1,37 @@
+rules:
+  - id: flask-xss-reflejado-por-concatenacion
+    # Cubre el falso negativo del ruleset de GitLab en /search: un parametro del
+    # request que termina en el HTML de la respuesta sin pasar por un encoder.
+    message: >-
+      Dato del request concatenado en una respuesta HTML sin codificar (XSS
+      reflejado, CWE-79). Escapar con markupsafe.escape/html.escape o usar un
+      template con autoescape.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: "CWE-79: Improper Neutralization of Input During Web Page Generation"
+      owasp: "A03:2021 - Injection"
+    mode: taint
+    pattern-sources:
+      - pattern: flask.request.args.get(...)
+      - pattern: flask.request.args[...]
+      - pattern: flask.request.form.get(...)
+      - pattern: flask.request.values.get(...)
+    pattern-sanitizers:
+      - pattern: markupsafe.escape(...)
+      - pattern: flask.escape(...)
+      - pattern: html.escape(...)
+      - pattern: flask.render_template(...)
+    pattern-sinks:
+      # "<tag>" + dato  /  dato + "</tag>"
+      - patterns:
+          - pattern-inside: |
+              @$BP.$METHOD(...)
+              def $F(...):
+                ...
+          - pattern-either:
+              - pattern: return "$HTML" + ...
+              - pattern: return ... + "$HTML"
+          - metavariable-regex:
+              metavariable: $HTML
+              regex: .*<[a-zA-Z/].*
