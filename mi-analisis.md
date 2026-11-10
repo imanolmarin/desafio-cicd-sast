@@ -14,6 +14,8 @@
 | `semgrep-custom` | test | Regla propia de Semgrep (`.semgrep/`) con sus tests | — |
 | `secret_detection` | test | Analizador de secretos de GitLab (Gitleaks + reglas de GitLab) | `gl-secret-detection-report.json` |
 
+![Pipeline de la rama sast en verde](capturas/4-pipeline-sast-verde.png)
+
 `SAST_EXCLUDED_PATHS` queda explícito con el valor por defecto de GitLab (`spec, test, tests, tmp`). Probé el analizador sin esa variable y aparecen 4 hallazgos extra `B101 assert_used` en `tests/test_app.py`. Son **falsos positivos**: usar `assert` en un test de pytest es lo correcto, el riesgo de Bandit (que `python -O` borre los asserts) solo aplica a código de producción.
 
 ## Nivel 2 — Clasificación de hallazgos
@@ -81,7 +83,10 @@ Los reportes completos están en `reportes/gl-sast-report-antes.json` y `reporte
 
 - El job `secret_detection` corre el analizador de GitLab y publica `gl-secret-detection-report.json`.
 - **Primer hallazgo: un falso positivo.** Al correrlo por primera vez (en local, antes de subir) reportó `AWS access token` en `CONSIGNA.md:162`: es la clave de ejemplo `AKIAIOSFODNN7…EXAMPLE` que trae el propio enunciado (acá la escribo cortada para no generar otro hallazgo). No es una credencial, así que excluí ese archivo con `SECRET_DETECTION_EXCLUDED_PATHS: "CONSIGNA.md"` (variable soportada por el template). Dato interesante: el Gitleaks "pelado" tiene esa clave en su allowlist y no la marca; las reglas de GitLab sí.
-- **Prueba con credencial falsa:** ver la sección "Prueba de secret detection" del PR. En la rama `test/secret-detection` agregué `AWS_SECRET_ACCESS_KEY = "<la clave de ejemplo de la consigna>"` en `app/config_prueba.py`; el job la reportó y el pipeline falló. Después la borré en otro commit y el job volvió a verde.
+- **Prueba con credencial falsa:** ver la sección "Prueba de secret detection" del PR. En la rama `test/secret-detection` agregué `AWS_SECRET_ACCESS_KEY = "<la clave de ejemplo de la consigna>"` en `app/config_prueba.py`; el job la reportó y el pipeline falló. Después la borré en otro commit y el job volvió a verde. Runs: [rojo](https://github.com/imanolmarin/desafio-cicd-sast/actions/runs/42737353941) → [verde](https://github.com/imanolmarin/desafio-cicd-sast/actions/runs/42737547147).
+
+  ![Pipeline de la rama de prueba](capturas/5-pipeline-secret-detection-rama-prueba.png)
+
 - **Por qué hay que rotar:** el job escanea el árbol actual, así que después del commit que la borra ya no la ve, pero la credencial **sigue en el historial de git** (`git log -p` la muestra, y cualquiera que haya clonado o forkeado la tiene). Borrarla del código no la des-filtra: si fuera real, el paso correcto es **revocarla/rotarla** en el proveedor primero, y recién después limpiar el historial si hace falta. Por eso además dejé la rama sin mergear.
 
 ## Extras (opcionales)
